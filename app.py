@@ -228,8 +228,10 @@ else:
 
     with col2:
         remote_ratio = st.slider("Remote Work Ratio (%)", min_value=0, max_value=100, step=10, value=50)
+        st.info("This indicates how much of your work can be done from home or a remote location. 0% is fully on-site, 50% is hybrid, and 100% is entirely remote.")
     with col3:
         benefits_score = st.slider("Benefits Score (0.00 - 1.00)", min_value=0.0, max_value=1.0, step=0.05, value=0.5)
+        st.info("This score (from 0.0 to 1.0) represents the overall quality and comprehensiveness of the job's benefits package. A higher score indicates better benefits.")
 
     input_df = pd.DataFrame([{
         'experience_encoded': exp_level_encoded,
