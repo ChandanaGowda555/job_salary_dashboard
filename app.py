@@ -14,10 +14,7 @@ st.set_page_config(page_title="AI Job Salary Dashboard", layout="wide")
 @st.cache_data
 def load_data():
     try:
-        # Assumes ai_job_dataset.csv is in the same directory as this script.
-        # If it's in a 'data' subfolder, use "data/ai_job_dataset.csv"
         df = pd.read_csv("ai_job_dataset.csv")
-        # st.success(f"Successfully loaded 'ai_job_dataset.csv'. Initial rows: {df.shape[0]}") # Debugging removed for cleaner output
     except FileNotFoundError:
         st.error("Error: 'ai_job_dataset.csv' not found. Please ensure it's in the same directory as the app.")
         st.stop()
@@ -25,32 +22,24 @@ def load_data():
         st.error(f"Error loading CSV file: {e}")
         st.stop()
 
-    # Standardize column names early
     df.columns = df.columns.str.lower().str.strip().str.replace(" ", "_")
-    # st.write(f"Processed columns: {df.columns.tolist()}") # Debugging removed for cleaner output
 
-    # Define the expected columns
     expected_cols = ['job_title', 'company_location', 'experience_level',
                      'remote_ratio', 'benefits_score', 'salary_usd']
 
-    # Check for presence of essential columns BEFORE proceeding
     missing_cols = [col for col in expected_cols if col not in df.columns]
     if missing_cols:
         st.error(f"Error: Missing essential columns in the dataset: {', '.join(missing_cols)}. Please check your CSV headers.")
         st.stop()
 
-    # MODIFICATION: Corrected experience level mapping to use abbreviations
-    exp_map = {'en': 0, 'mi': 1, 'se': 2, 'ex': 3} # Mapped to 'Entry', 'Mid', 'Senior', 'Executive' respectively
+    exp_map = {'en': 0, 'mi': 1, 'se': 2, 'ex': 3}
 
-    # Ensure 'experience_level' column is consistently lowercased before mapping
     if 'experience_level' in df.columns:
         df['experience_level'] = df['experience_level'].astype(str).str.lower()
-        # st.write(f"Unique experience levels after lowercasing: {df['experience_level'].unique().tolist()}") # Debugging removed
-
+        
         initial_rows = df.shape[0]
-        df = df[df['experience_level'].isin(exp_map.keys())].copy() # Use .copy() to avoid SettingWithCopyWarning
-        # st.write(f"Rows after filtering for valid experience levels: {df.shape[0]} (dropped {initial_rows - df.shape[0]} rows)") # Debugging removed
-
+        df = df[df['experience_level'].isin(exp_map.keys())].copy()
+        
         if df.empty:
             st.error("Dataset became empty after filtering for valid 'experience_level' values. This indicates a mismatch between expected and actual values.")
             st.stop()
@@ -60,67 +49,60 @@ def load_data():
         st.error("Error: 'experience_level' column not found, even after standardizing names.")
         st.stop()
 
-    # Columns needed for the application's core functionality (prediction and plotting)
     required_for_app = ['experience_encoded', 'remote_ratio', 'benefits_score', 'salary_usd',
-                        'job_title', 'company_location', 'experience_level'] # experience_level needed for sidebar
+                        'job_title', 'company_location', 'experience_level']
 
     initial_rows_before_dropna = df.shape[0]
     df_cleaned = df.dropna(subset=required_for_app)
     rows_dropped_by_dropna = initial_rows_before_dropna - df_cleaned.shape[0]
 
-    # st.write(f"Rows dropped due to NaNs in essential columns: {rows_dropped_by_dropna}") # Debugging removed
     if df_cleaned.empty:
         st.error(f"Dataset became empty after dropping rows with missing values in {required_for_app}. This suggests too many essential values are missing.")
         st.stop()
     
-    df = df_cleaned # Use the cleaned dataframe
-
-    # st.success(f"Preprocessing complete. Final dataset size: {df.shape[0]} rows.") # Debugging removed
+    df = df_cleaned
 
     return df, exp_map
 
 df, exp_map = load_data()
+
+# Define a map for display names (encoded value -> full name)
+display_exp_map = {0: 'Entry', 1: 'Mid', 2: 'Senior', 3: 'Executive'}
 
 # ------------------------------
 # Sidebar Filters
 # ------------------------------
 st.sidebar.title("🔍 Filter Job Data")
 
-# Ensure unique values for selectboxes are available
 if not df.empty:
     job_titles = sorted(df['job_title'].dropna().unique())
     locations = sorted(df['company_location'].dropna().unique())
     
-    # Correct the mapping for display purposes if you want to show full words
-    display_exp_map = {0: 'Entry', 1: 'Mid', 2: 'Senior', 3: 'Executive'}
-    # Create a sorted list of full experience level names for the selectbox
-    experiences_for_display = sorted([display_exp_map[exp_map[abbr]] for abbr in df['experience_level'].dropna().unique()], key=lambda x: display_exp_map[x])
-    
-    # Get the original abbreviated unique values to map back for filtering
-    # This ensures that even if you have only 'se' and 'mi', the options are only 'Senior' and 'Mid'
-    available_exp_abbr = sorted(df['experience_level'].dropna().unique(), key=lambda x: exp_map[x])
-    experience_level_options = [
-        (display_exp_map[exp_map[abbr]], abbr) # (Display Name, Abbreviation)
-        for abbr in available_exp_abbr
+    # Get unique abbreviations from the dataframe, sort them by their encoded value
+    available_exp_abbr_sorted = sorted(df['experience_level'].dropna().unique(), key=lambda abbr: exp_map[abbr])
+
+    # Create a list of tuples (full_name, abbreviation) for the selectbox
+    sidebar_exp_options = [
+        (display_exp_map[exp_map[abbr]], abbr)
+        for abbr in available_exp_abbr_sorted
     ]
     
     job_title = st.sidebar.selectbox("Job Title", job_titles)
     location = st.sidebar.selectbox("Company Location", locations)
     
-    # Use the display name for the selectbox, but store the abbreviation for filtering
-    selected_exp_display = st.sidebar.selectbox(
+    # Use the display name for the selectbox
+    selected_exp_display_sidebar = st.sidebar.selectbox(
         "Experience Level", 
-        [item[0] for item in experience_level_options], # Display the full name
-        format_func=lambda x: x # Use the full name as is for display
+        [option[0] for option in sidebar_exp_options] 
     )
     # Find the corresponding abbreviation for filtering
-    experience = next((item[1] for item in experience_level_options if item[0] == selected_exp_display), None)
+    experience = next((abbr for display_name, abbr in sidebar_exp_options if display_name == selected_exp_display_sidebar), None)
 
 
     filtered_df = df[
         (df['job_title'] == job_title) &
         (df['company_location'] == location) &
-        (df['experience_level'] == experience) # Use the abbreviation for filtering
+        (df['experience_level'] == experience) 
     ]
 else:
     st.sidebar.warning("⚠️ Dataset is empty or failed to load. Cannot apply filters.")
@@ -133,21 +115,17 @@ else:
 st.title("🌐 Global AI Job Market & Salary Trends (2025)")
 st.markdown("Gain insights into salary ranges, remote work flexibility, and benefits trends in the AI job market.")
 
-# Check for empty filtered_df before plotting
 if filtered_df.empty:
     st.warning("⚠️ No data matches the selected filters. Please adjust your selections to see the dashboard insights.")
 else:
-    # Salary Distribution Plot
     st.subheader("💰 Salary Distribution (USD)")
     fig1 = px.histogram(filtered_df, x='salary_usd', nbins=20, title="Salary Distribution")
     st.plotly_chart(fig1, use_container_width=True)
 
-    # Remote Work
     st.subheader("🏠 Remote Work Ratio")
     fig2 = px.histogram(filtered_df, x='remote_ratio', title="Remote Ratio Distribution")
     st.plotly_chart(fig2, use_container_width=True)
 
-    # Benefits Score
     st.subheader("🎁 Benefits Score Distribution")
     fig3 = px.histogram(filtered_df, x='benefits_score', nbins=20, title="Benefits Score")
     st.plotly_chart(fig3, use_container_width=True)
@@ -193,13 +171,14 @@ if model is None:
 else:
     col1, col2, col3 = st.columns(3)
 
+    # Use the same sorted options as sidebar for consistency in prediction UI
+    prediction_exp_display_options = [option[0] for option in sidebar_exp_options]
+
     with col1:
-        # Use full names for display in the prediction UI, map back to abbreviations for prediction
-        prediction_exp_map = {'Entry': 'en', 'Mid': 'mi', 'Senior': 'se', 'Executive': 'ex'}
-        exp_level_display_options = sorted(list(prediction_exp_map.keys()), key=lambda x: exp_map[prediction_exp_map[x]])
-        exp_level_selected_display = st.selectbox("Experience Level", exp_level_display_options)
-        # Get the corresponding abbreviated value for encoding
-        exp_level_encoded = exp_map[prediction_exp_map[exp_level_selected_display]]
+        exp_level_selected_display = st.selectbox("Experience Level", prediction_exp_display_options)
+        # Find the corresponding abbreviated value for encoding
+        selected_abbr_for_prediction = next((abbr for display_name, abbr in sidebar_exp_options if display_name == exp_level_selected_display), None)
+        exp_level_encoded = exp_map[selected_abbr_for_prediction] if selected_abbr_for_prediction else None
 
     with col2:
         remote_ratio = st.slider("Remote Work Ratio (%)", min_value=0, max_value=100, step=10, value=50)
@@ -207,7 +186,7 @@ else:
         benefits_score = st.slider("Benefits Score (0.00 - 1.00)", min_value=0.0, max_value=1.0, step=0.05, value=0.5)
 
     input_df = pd.DataFrame([{
-        'experience_encoded': exp_level_encoded, # Use the correctly encoded value
+        'experience_encoded': exp_level_encoded,
         'remote_ratio': remote_ratio,
         'benefits_score': benefits_score
     }])
