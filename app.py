@@ -250,4 +250,4 @@ else:
 # Footer
 # ------------------------------
 st.markdown("---")
-st.markdown("🚀 Built with ❤️ using Streamlit | 📊 Dataset: AI Job Market 2025")
+st.markdown("Built using Streamlit | 📊 Dataset: AI Job Market 2025")
