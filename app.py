@@ -25,7 +25,8 @@ def load_data():
     df.columns = df.columns.str.lower().str.strip().str.replace(" ", "_")
 
     expected_cols = ['job_title', 'company_location', 'experience_level',
-                     'remote_ratio', 'benefits_score', 'salary_usd']
+                     'remote_ratio', 'benefits_score', 'salary_usd',
+                     'required_skills', 'company_name']
 
     missing_cols = [col for col in expected_cols if col not in df.columns]
     if missing_cols:
@@ -49,13 +50,14 @@ def load_data():
         st.error("Error: 'experience_level' column not found, even after standardizing names.")
         st.stop()
 
+    # Drop NaNs for columns critical to both filtering and model/insights
     required_for_app = ['experience_encoded', 'remote_ratio', 'benefits_score', 'salary_usd',
-                        'job_title', 'company_location', 'experience_level']
+                        'job_title', 'company_location', 'experience_level',
+                        'required_skills', 'company_name'] 
 
     initial_rows_before_dropna = df.shape[0]
     df_cleaned = df.dropna(subset=required_for_app)
-    rows_dropped_by_dropna = initial_rows_before_dropna - df_cleaned.shape[0]
-
+    
     if df_cleaned.empty:
         st.error(f"Dataset became empty after dropping rows with missing values in {required_for_app}. This suggests too many essential values are missing.")
         st.stop()
@@ -68,9 +70,11 @@ df, exp_map = load_data()
 
 # Define a map for display names (encoded value -> full name)
 display_exp_map = {0: 'Entry', 1: 'Mid', 2: 'Senior', 3: 'Executive'}
+# Create a reverse map for sorting by display name
+reverse_display_exp_map = {v: k for k, v in display_exp_map.items()}
 
 # ------------------------------
-# Sidebar Filters
+# Sidebar Filters (remain unchanged)
 # ------------------------------
 st.sidebar.title("🔍 Filter Job Data")
 
@@ -78,10 +82,8 @@ if not df.empty:
     job_titles = sorted(df['job_title'].dropna().unique())
     locations = sorted(df['company_location'].dropna().unique())
     
-    # Get unique abbreviations from the dataframe, sort them by their encoded value
     available_exp_abbr_sorted = sorted(df['experience_level'].dropna().unique(), key=lambda abbr: exp_map[abbr])
 
-    # Create a list of tuples (full_name, abbreviation) for the selectbox
     sidebar_exp_options = [
         (display_exp_map[exp_map[abbr]], abbr)
         for abbr in available_exp_abbr_sorted
@@ -90,49 +92,95 @@ if not df.empty:
     job_title = st.sidebar.selectbox("Job Title", job_titles)
     location = st.sidebar.selectbox("Company Location", locations)
     
-    # Use the display name for the selectbox
     selected_exp_display_sidebar = st.sidebar.selectbox(
         "Experience Level", 
         [option[0] for option in sidebar_exp_options] 
     )
-    # Find the corresponding abbreviation for filtering
     experience = next((abbr for display_name, abbr in sidebar_exp_options if display_name == selected_exp_display_sidebar), None)
 
 
+    # filtered_df for average salary and required skills (specific to all three inputs)
     filtered_df = df[
         (df['job_title'] == job_title) &
         (df['company_location'] == location) &
         (df['experience_level'] == experience) 
     ]
+
+    # graph_df for Salary vs Experience Level (filtered only by job title and company location)
+    graph_df = df[
+        (df['job_title'] == job_title) &
+        (df['company_location'] == location)
+    ].copy() # Use .copy() to avoid SettingWithCopyWarning
+    
+    # Add a display column for experience level in graph_df for better plotting labels
+    graph_df['experience_level_display'] = graph_df['experience_encoded'].map(display_exp_map)
+
 else:
     st.sidebar.warning("⚠️ Dataset is empty or failed to load. Cannot apply filters.")
     st.stop()
 
 
 # ------------------------------
-# Dashboard Main
+# Dashboard Main - Now showing specific insights and a new graph
 # ------------------------------
-st.title("🌐 Global AI Job Market & Salary Trends (2025)")
-st.markdown("Gain insights into salary ranges, remote work flexibility, and benefits trends in the AI job market.")
+st.title("💡 AI Job Market Insights")
+st.markdown(f"**Based on your selection:** \n**Job Title:** `{job_title}`  \n**Location:** `{location}` \n**Experience Level:** `{selected_exp_display_sidebar}`")
 
 if filtered_df.empty:
-    st.warning("⚠️ No data matches the selected filters. Please adjust your selections to see the dashboard insights.")
+    st.warning("⚠️ No data matches the selected filters for your specific experience level. Please adjust your selections or check the 'Salary vs. Experience Level' graph below for broader insights.")
 else:
-    st.subheader("💰 Salary Distribution (USD)")
-    fig1 = px.histogram(filtered_df, x='salary_usd', nbins=20, title="Salary Distribution")
-    st.plotly_chart(fig1, use_container_width=True)
+    # 1. Average Salary in USD for the three inputs
+    st.subheader("💰 Estimated Average Salary (USD)")
+    avg_salary = filtered_df['salary_usd'].mean()
+    st.markdown(f"The average salary for a **{selected_exp_display_sidebar} {job_title}** in **{location}** is approximately **${avg_salary:,.2f} USD**.")
+    
+    st.markdown("---")
 
-    st.subheader("🏠 Remote Work Ratio")
-    fig2 = px.histogram(filtered_df, x='remote_ratio', title="Remote Ratio Distribution")
-    st.plotly_chart(fig2, use_container_width=True)
+    # 2. Required Skills for the three inputs
+    st.subheader("🛠️ Key Required Skills for this Specific Role")
+    all_skills = filtered_df['required_skills'].dropna().tolist()
+    if all_skills:
+        skills_list = [skill.strip() for sublist in all_skills for skill in sublist.split(',')]
+        skill_counts = pd.Series(skills_list).value_counts()
+        
+        st.write("Candidates for this specific role typically require the following skills:")
+        
+        num_skills_to_show = 10
+        for skill, count in skill_counts.head(num_skills_to_show).items():
+            st.markdown(f"- **{skill}** (found in {count} relevant postings)")
+        if len(skill_counts) > num_skills_to_show:
+            st.info(f"And {len(skill_counts) - num_skills_to_show} more skills...")
+    else:
+        st.info("No specific skills listed for this combination.")
 
-    st.subheader("🎁 Benefits Score Distribution")
-    fig3 = px.histogram(filtered_df, x='benefits_score', nbins=20, title="Benefits Score")
-    st.plotly_chart(fig3, use_container_width=True)
+    st.markdown("---")
+
+# 3. Salary vs. Experience Level Graph (for all experience levels for chosen job & location)
+st.subheader(f"📈 Salary Progression for '{job_title}' in '{location}'")
+
+if graph_df.empty:
+    st.warning(f"⚠️ No data available to show salary progression for '{job_title}' in '{location}' across different experience levels. Please check your job title and location selections.")
+else:
+    # Sort the x-axis by the encoded experience level to ensure correct order
+    # Use plotly.express.box for better representation of salary distribution at each level
+    fig = px.box(
+        graph_df,
+        x='experience_level_display',
+        y='salary_usd',
+        title=f"Salary (USD) vs. Experience Level for {job_title} in {location}",
+        labels={'salary_usd': 'Salary (USD)', 'experience_level_display': 'Experience Level'},
+        color='experience_level_display', # Color by experience level
+        category_orders={"experience_level_display": [display_exp_map[i] for i in sorted(display_exp_map.keys())]} # Ensure correct order
+    )
+    fig.update_traces(marker_line_width=2, marker_line_color='black')
+    fig.update_layout(xaxis_title="Experience Level", yaxis_title="Salary (USD)")
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
 
 
 # ------------------------------
-# Train Salary Prediction Model
+# Train Salary Prediction Model (Remains the same)
 # ------------------------------
 features = ['experience_encoded', 'remote_ratio', 'benefits_score']
 target_col = 'salary_usd'
@@ -161,7 +209,7 @@ def train_salary_model(data, features, target_column):
 model = train_salary_model(df, features, target_col)
 
 # ------------------------------
-# Salary Prediction UI
+# Salary Prediction UI (Remains the same)
 # ------------------------------
 st.title("📊 AI Job Salary Estimator")
 st.markdown("Enter your details below to estimate your expected salary:")
@@ -171,12 +219,10 @@ if model is None:
 else:
     col1, col2, col3 = st.columns(3)
 
-    # Use the same sorted options as sidebar for consistency in prediction UI
     prediction_exp_display_options = [option[0] for option in sidebar_exp_options]
 
     with col1:
         exp_level_selected_display = st.selectbox("Experience Level", prediction_exp_display_options)
-        # Find the corresponding abbreviated value for encoding
         selected_abbr_for_prediction = next((abbr for display_name, abbr in sidebar_exp_options if display_name == exp_level_selected_display), None)
         exp_level_encoded = exp_map[selected_abbr_for_prediction] if selected_abbr_for_prediction else None
 
