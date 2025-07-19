@@ -145,7 +145,7 @@ else:
         
         st.write("Candidates for this specific role typically require the following skills:")
         
-        num_skills_to_show = 10
+        num_skills_to_show = 20
         for skill, count in skill_counts.head(num_skills_to_show).items():
             st.markdown(f"- **{skill}** (found in {count} relevant postings)")
         if len(skill_counts) > num_skills_to_show:
